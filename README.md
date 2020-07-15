@@ -6,12 +6,6 @@
 npm install
 ```
 
-## Test
-
-
-curl --request GET 'http://localhost:8000/tx/01ED9C0NJ6M4SN73FX9HCPTB1N' \
---header 'Content-Type: application/json'
-
 ## Rockside setup
 
 First you need to deploy a forwarder for your dApp. See our official documentation https://docs.rockside.io/rockside-api
@@ -49,7 +43,7 @@ curl --request POST 'http://localhost:8000/stakeGoodAccounting' \
 --data '{
 	"smartwallet": SMARTWALLET_ADDRESS,
 	"signer": EOA_PRIVATEKEY,
-	"stakerAddr": SMARTWALLET_ADDRESS,
+	"stakerAddr": ...,
 	"stakeIndex": ...,
 	"stakeIdParam": ...
 }'
