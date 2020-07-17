@@ -65,7 +65,8 @@ async function stakeStart(req, res) {
   } = await fetchRelayParams(signer);
 
   const message = makeMessage(0, dataForContract)
-  const signature = await sign(signer, signerPrivateKey, smartwallet, message, 0, nonce)
+  const hash = hashRelayMessage(signer, smartwallet, message, nonce);
+  const signature = await sign(signerPrivateKey, hash)
   const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
   res.status(200).json({
     trackingId
@@ -100,7 +101,8 @@ async function batchStakeStart(req, res) {
   } = await fetchRelayParams(signer);
 
   const message = makeBatchMessage(calls)
-  const signature = await sign(signer, signerPrivateKey, smartwallet, message, 0, nonce)
+  const hash = hashRelayMessage(signer, smartwallet, message, nonce);
+  const signature = await sign(signerPrivateKey, hash)
   const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
   res.status(200).json({
     trackingId
@@ -136,7 +138,8 @@ async function stakeGoodAccounting(req, res) {
   } = await fetchRelayParams(signer);
 
   const message = makeMessage(0, dataForContract)
-  const signature = await sign(signer, signerPrivateKey, smartwallet, message, 0, nonce)
+  const hash = hashRelayMessage(signer, smartwallet, message, nonce);
+  const signature = await sign(signerPrivateKey, hash)
   const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
   res.status(200).json({
     trackingId
@@ -168,7 +171,8 @@ async function stakeEnd(req, res) {
   } = await fetchRelayParams(signer);
 
   const message = makeMessage(0, dataForContract)
-  const signature = await sign(signer, signerPrivateKey, smartwallet, message, 0, nonce)
+  const hash = hashRelayMessage(signer, smartwallet, message, nonce);
+  const signature = await sign(signerPrivateKey, hash)
   const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
   res.status(200).json({
     trackingId
@@ -201,7 +205,8 @@ async function xfLobbyEnter(req, res) {
   } = await fetchRelayParams(signer);
 
   const message = makeMessage(value, dataForContract)
-  const signature = await sign(signer, signerPrivateKey, smartwallet, message, value, nonce)
+  const hash = hashRelayMessage(signer, smartwallet, message, nonce);
+  const signature = await sign(signerPrivateKey, hash)
   const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
   res.status(200).json({
     trackingId
@@ -232,7 +237,8 @@ async function xfLobbyExit(req, res) {
   } = await fetchRelayParams(signer);
 
   const message = makeMessage(0, dataForContract)
-  const signature = await sign(signer, signerPrivateKey, smartwallet, message, 0, nonce)
+  const hash = hashRelayMessage(signer, smartwallet, message, nonce);
+  const signature = await sign(signerPrivateKey, hash)
   const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
   res.status(200).json({
     trackingId
@@ -339,8 +345,7 @@ function hashRelayMessage(signer, to, data, nonce) {
   );
 }
 
-async function sign(signer, signerPrivateKey, to, data, value, nonce) {
-  const hash = hashRelayMessage(signer, to, data, nonce);
+async function sign(signerPrivateKey, hash) {
   const sig = await ethUtil.ecsign(hash, Buffer.from(signerPrivateKey.substring(2), 'hex'));
   const signature = ethUtil.toRpcSig(sig.v, sig.r, sig.s);
   return signature
