@@ -32,10 +32,21 @@ For some call you (ex: `xfLobbyEnter`) the SmartWallet will need some eth, so th
 curl --request POST 'http://localhost:8000/stakeStart' \
 --header 'Content-Type: application/json' \
 --data '{
-	"smartwallet": SMARTWALLET_ADDRESS,
-	"signer": "EOA_PRIVATEKEY",
-	"newStakedHearts": ...,
-	"newStakedDays": ...
+curl --request POST 'http://localhost:8000/batch/stakeStart' \
+--header 'Content-Type: application/json' \
+--data '{
+  "smartwallet": SMARTWALLET_ADDRESS,
+  "signer": "EOA_PRIVATEKEY",
+  "batch": [
+    {
+      "newStakedHearts": ...,
+      "newStakedDays": ...
+    },
+    {
+      "newStakedHearts": ...,
+      "newStakedDays": ...
+    }
+  ]
 }'
 
 curl --request POST 'http://localhost:8000/stakeGoodAccounting' \

@@ -72,6 +72,41 @@ async function stakeStart(req, res) {
   })
 }
 
+async function batchStakeStart(req, res) {
+  const batch = req.body.batch
+  const smartwallet = req.body.smartwallet
+  const signerPrivateKey = req.body.signer
+  const signer = ethUtil.bufferToHex(ethUtil.privateToAddress(signerPrivateKey));
+
+  let calls = []
+  for (var i = 0; i < batch.length; i++) {
+    let dataForContract = web3.eth.abi.encodeFunctionCall({
+      name: 'stakeStart',
+      type: 'function',
+      inputs: [{
+        type: 'uint256',
+        name: 'newStakedHearts'
+      }, {
+        type: 'uint256',
+        name: 'newStakedDays'
+      }]
+    }, [batch[i].newStakedHearts, batch[i].newStakedDays]);
+    calls.push([contractAddress, 0, dataForContract])
+  }
+
+  const {
+    nonce,
+    gas_prices: gasPrice
+  } = await fetchRelayParams(signer);
+
+  const message = makeBatchMessage(calls)
+  const signature = await sign(signer, signerPrivateKey, smartwallet, message, 0, nonce)
+  const trackingId = await forward(signer, smartwallet, message, nonce, signature, gasPrice)
+  res.status(200).json({
+    trackingId
+  })
+}
+
 async function stakeGoodAccounting(req, res) {
   const stakerAddr = req.body.stakerAddr
   const stakeIndex = req.body.stakeIndex
@@ -222,6 +257,28 @@ function makeMessage(value, data) {
   return dataForSmartwallet
 }
 
+function makeBatchMessage(batch) {
+  const dataForSmartwallet = web3.eth.abi.encodeFunctionCall({
+    name: 'batch',
+    type: 'function',
+    inputs: [{
+      components: [{
+        name: "to",
+        type: "address"
+      }, {
+        name: "value",
+        type: "uint256"
+      }, {
+        name: "data",
+        type: "bytes"
+      }],
+      name: "calls",
+      type: "tuple[]"
+    }]
+  }, [batch]);
+  return dataForSmartwallet
+}
+
 function hashRelayMessage(signer, to, data, nonce) {
   const domain = {
     verifyingContract: forwarderAddress,
@@ -247,19 +304,18 @@ function hashRelayMessage(signer, to, data, nonce) {
 
   const messageTypes = {
     'TxMessage': [{
-        name: "signer",
-        type: "address"
-      },{
-        name: "to",
-        type: "address"
-      },{
-        name: "data",
-        type: "bytes"
-      },{
-        name: "nonce",
-        type: "uint256"
-      },
-    ]
+      name: "signer",
+      type: "address"
+    }, {
+      name: "to",
+      type: "address"
+    }, {
+      name: "data",
+      type: "bytes"
+    }, {
+      name: "nonce",
+      type: "uint256"
+    }, ]
   };
 
   const encodedMessage = TypedDataUtils.encodeData(
@@ -344,6 +400,8 @@ app.post('/stakeGoodAccounting', wrap(stakeGoodAccounting))
 app.post('/stakeEnd', wrap(stakeEnd))
 app.post('/xfLobbyEnter', wrap(xfLobbyEnter))
 app.post('/xfLobbyExit', wrap(xfLobbyExit))
+
+app.post('/batch/stakeStart', wrap(batchStakeStart))
 
 app.set('trust proxy', true);
 app.use(function(err, req, res, next) {
