@@ -18,9 +18,67 @@ const forwarderAddress = process.env.FORWARDER;
 const contractAddress = process.env.CONTRACT; // hex smart contract address
 const port = process.env.PORT || '8000'
 
+const smartwalletMainnetImpl = '0x89D3478550a82efa26ee0B4Aab7025b5Ef154fa7'
+const smartwalletRopstenImpl = '0x143936adBA80D25625E7Ff3899f157507397b245'
+const factoryMainnet = '0x7a5b998c2b3889e003a4c7bfd1653ed7dbd2ea47'
+const factoryRopsten = '0x8781Ba37f5537680400aC64C374794961d8019d6'
+
 async function setup(req, res) {
   res.json({
     hexContract: contractAddress,
+  })
+}
+
+async function deploySmartwallet(req, res) {
+  const owner = req.body.owner
+  const signerPrivateKey = req.body.signer
+  const signer = ethUtil.bufferToHex(ethUtil.privateToAddress(signerPrivateKey));
+
+  const implementation = (network == 'mainnet') ? smartwalletMainnetImpl: smartwalletRopstenImpl
+  const factory = (network == 'mainnet') ? factoryMainnet: factoryRopsten
+  const salt = "0x0000000000000000000000000000000000000000000000000000000000000000"
+  const version = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+  const initData = web3.eth.abi.encodeFunctionCall({
+    name: 'initialize',
+    type: 'function',
+    inputs: [{
+      type: 'address',
+      name: 'forwarder'
+    }]
+  }, [forwarderAddress]);
+
+  const dataForFactory = web3.eth.abi.encodeFunctionCall({
+    name: 'createProxyWithNonce',
+    type: 'function',
+    inputs: [{
+      type: 'address',
+      name: 'owner'
+    }, {
+      type: 'bytes32',
+      name: 'version'
+    }, {
+      type: 'address',
+      name: 'implementation'
+    }, {
+      type: 'bytes',
+      name: 'data'
+    }, {
+      type: 'bytes32',
+      name: 'saltNonce'
+    }]
+  }, [owner, version, implementation, initData, salt]);
+
+  const {
+    nonce,
+    gas_prices: gasPrice
+  } = await fetchRelayParams(signer);
+
+  const hash = hashRelayMessage(signer, factory, dataForFactory, nonce);
+  const signature = await sign(signerPrivateKey, hash)
+  const trackingId = await forward(signer, factory, dataForFactory, nonce, signature, gasPrice)
+  res.status(200).json({
+    trackingId
   })
 }
 
@@ -405,7 +463,7 @@ app.post('/stakeGoodAccounting', wrap(stakeGoodAccounting))
 app.post('/stakeEnd', wrap(stakeEnd))
 app.post('/xfLobbyEnter', wrap(xfLobbyEnter))
 app.post('/xfLobbyExit', wrap(xfLobbyExit))
-
+app.post('/deploySmartwallet', wrap(deploySmartwallet))
 app.post('/batch/stakeStart', wrap(batchStakeStart))
 
 app.set('trust proxy', true);
