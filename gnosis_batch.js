@@ -3,23 +3,24 @@ let request = require('request-promise');
 let bodyParser = require('body-parser');
 let cors = require('cors')
 let Web3 = require('web3')
+let web3 = new Web3(Web3.givenProvider)
 const {
   TypedDataUtils
 } = require('eth-sig-util');
 const ethUtil = require('ethereumjs-util');
 
-const network = process.env.NETWORK || 'mainnet'
-const chainId = process.env.CHAINID || 1
-const apikey = process.env.APIKEY
-const rocksideURL = process.env.APIURL || 'https://api.rockside.io'
-
 const contractAddress = process.env.CONTRACT
 const port = process.env.PORT || '8000'
-const rpc = process.env.RPC
 
-const multiSend = process.env.MULTISEND || '0x8D29bE29923b68abfDD21e541b9374737B49cdAD'
+const multiSend = process.env.MULTISEND
+const adminPrivateKey = process.env.ADMIN_PRIVATE_KEY
+const admin = ethUtil.bufferToHex(ethUtil.privateToAddress(adminPrivateKey));
 
-let web3 = new Web3(rpc)
+const forwarderAddress = process.env.FORWARDER;
+
+const { hashForwarderMessage } = require('./forwarder');
+const { hashGnosisMessage, getGnosisNonce } = require('./gnosis');
+const rockside = require('./rockside');
 
 async function setup(req, res) {
   res.json({
@@ -63,23 +64,22 @@ async function batchStakeStart(req, res) {
     ]
   }, [dataForMultisend]);
 
-  const params = await fetchParams(gnosis);
-  const nonce = await getGnosisNonce(gnosis);
+  const nonceGnosis = await getGnosisNonce(gnosis);
 
   let tx = {}
   tx.to = multiSend
   tx.value = 0
   tx.data = data
   tx.operation = 1
-  tx.safeTxGas = 100000 // should be estimated
-  tx.baseGas = 40000
-  tx.gasPrice = params.speeds.fast.gas_price
+  tx.safeTxGas = 0
+  tx.baseGas = 0
+  tx.gasPrice = 0
   tx.gasToken = '0x0000000000000000000000000000000000000000'
-  tx.refundReceiver = params.speeds.fast.relayer
-  tx.nonce = nonce
+  tx.refundReceiver = '0x0000000000000000000000000000000000000000'
+  tx.nonce = nonceGnosis
 
-  const message = gnosisMessage(gnosis, tx)
-  const signature = sign(signerPrivateKey, message)
+  const message = hashGnosisMessage(gnosis, tx)
+  const signatureGnosis = sign(signerPrivateKey, message)
   const execTransactionData = web3.eth.abi.encodeFunctionCall({
     name: 'execTransaction',
     type: 'function',
@@ -95,79 +95,19 @@ async function batchStakeStart(req, res) {
       {name: 'refundReceiver',type: 'address'},
       {name: 'signatures',type: 'bytes'},
     ]
-  }, [tx.to, tx.value, tx.data, tx.operation, tx.safeTxGas, tx.baseGas, tx.gasPrice, tx.gasToken, tx.refundReceiver, signature]);
+  }, [tx.to, tx.value, tx.data, tx.operation, tx.safeTxGas, tx.baseGas, tx.gasPrice, tx.gasToken, tx.refundReceiver, signatureGnosis]);
 
-  const trackingId = await relay(gnosis, execTransactionData, 'fast')
+  const {
+    nonce,
+    gas_prices: gasPrice
+  } = await rockside.fetchForwardParams(forwarderAddress, admin)
+
+  const hash = hashForwarderMessage(forwarderAddress, admin, gnosis, execTransactionData, nonce)
+  const signature = await sign(adminPrivateKey, hash)
+  const trackingId = await rockside.forward(forwarderAddress, admin, gnosis, execTransactionData, nonce, signature, 'fast', gasPrice.fast)
   res.status(200).json({
     trackingId
   })
-}
-
-async function fetchParams(gnosis) {
-  const response = await request({
-    uri: `${rocksideURL}/ethereum/${network}/relay/${gnosis}/params?apikey=${apikey}`,
-    method: 'GET',
-    json: true,
-  })
-
-  return response;
-}
-
-async function getGnosisNonce(gnosis) {
-  return await web3.eth.call({
-    to: gnosis,
-    data: "0xaffed0e0"
-  })
-}
-
-function gnosisMessage(gnosis, tx) {
-  const domain = {
-    verifyingContract: gnosis,
-  };
-
-  const eip712DomainType = [{
-      name: 'verifyingContract',
-      type: 'address'
-    }
-  ];
-  const encodedDomain = TypedDataUtils.encodeData(
-    'EIP712Domain',
-    domain, {
-      EIP712Domain: eip712DomainType
-    }
-  );
-  const hashedDomain = ethUtil.keccak256(encodedDomain);
-  const messageTypes = {
-    'SafeTx': [
-      {name: "to", type: "address"},
-      {name: "value", type: "uint256"},
-      {name: "data", type: "bytes"},
-      {name: "operation", type: "uint8"},
-      {name: "safeTxGas", type: "uint256"},
-      {name: "baseGas", type: "uint256"},
-      {name: "gasPrice", type: "uint256"},
-      {name: "gasToken", type: "address"},
-      {name: "refundReceiver", type: "address"},
-      {name: "nonce", type: "uint256"},
-    ]
-  }
-
-  const encodedMessage = TypedDataUtils.encodeData(
-    'SafeTx',
-    tx,
-    messageTypes,
-  );
-
-  const hashedMessage = ethUtil.keccak256(encodedMessage);
-
-  const hash = ethUtil.keccak256(
-    Buffer.concat([
-      Buffer.from('1901', 'hex'),
-      hashedDomain,
-      hashedMessage,
-    ])
-  );
-  return hash
 }
 
 function sign(signerPrivateKey, hash) {
@@ -176,30 +116,8 @@ function sign(signerPrivateKey, hash) {
   return signature
 }
 
-async function relay(gnosis, data, speed) {
-  const requestBody = {
-    data: data,
-    speed: speed
-  };
-
-  const response = await request({
-    method: 'POST',
-    uri: `${rocksideURL}/ethereum/${network}/relay/${gnosis}?apikey=${apikey}`,
-    body: requestBody,
-    json: true,
-  })
-
-  return response.tracking_id;
-}
-
 async function getRocksideTx(req, res) {
-  const response = await request({
-    uri: `${rocksideURL}/ethereum/${network}/transactions/${req.params.trackingId}?apikey=${apikey}`,
-    method: 'GET',
-    json: true,
-  })
-
-  res.json(response)
+  res.json(await rockside.getTransaction(req.params.trackingId))
 }
 
 function wrap(handler) {
